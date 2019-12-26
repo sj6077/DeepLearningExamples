@@ -35,7 +35,7 @@ class RecurrentAttention(nn.Module):
     """
     def __init__(self, input_size=1024, context_size=1024, hidden_size=1024,
                  num_layers=1, batch_first=False, dropout=0.2,
-                 init_weight=0.1):
+                 init_weight=0.1, batch_size=None):
         """
         Constructor for the RecurrentAttention.
 
@@ -52,11 +52,12 @@ class RecurrentAttention(nn.Module):
         super(RecurrentAttention, self).__init__()
 
         self.rnn = nn.LSTM(input_size, hidden_size, num_layers, bias=True,
-                           batch_first=batch_first)
+                           batch_first=batch_first, batch_size=batch_size)
         init_lstm_(self.rnn, init_weight)
 
         self.attn = BahdanauAttention(hidden_size, context_size, context_size,
-                                      normalize=True, batch_first=batch_first)
+                                      normalize=True, batch_first=batch_first,
+                                      batch_size=batch_size)
 
         self.dropout = nn.Dropout(dropout)
 
@@ -125,7 +126,7 @@ class ResidualRecurrentDecoder(nn.Module):
     on inputs to LSTM layers.
     """
     def __init__(self, vocab_size, hidden_size=1024, num_layers=4, dropout=0.2,
-                 batch_first=False, embedder=None, init_weight=0.1):
+                 batch_first=False, embedder=None, init_weight=0.1, batch_size=None):
         """
         Constructor of the ResidualRecurrentDecoder.
 
@@ -146,13 +147,14 @@ class ResidualRecurrentDecoder(nn.Module):
         self.att_rnn = RecurrentAttention(hidden_size, hidden_size,
                                           hidden_size, num_layers=1,
                                           batch_first=batch_first,
-                                          dropout=dropout)
+                                          dropout=dropout,
+                                          batch_size=batch_size)
 
         self.rnn_layers = nn.ModuleList()
         for _ in range(num_layers - 1):
             self.rnn_layers.append(
                 nn.LSTM(2 * hidden_size, hidden_size, num_layers=1, bias=True,
-                        batch_first=batch_first))
+                        batch_first=batch_first, batch_size=batch_size))
 
         for lstm in self.rnn_layers:
             init_lstm_(lstm, init_weight)

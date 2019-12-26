@@ -33,7 +33,7 @@ class BahdanauAttention(nn.Module):
     Implementation is very similar to tf.contrib.seq2seq.BahdanauAttention
     """
     def __init__(self, query_size, key_size, num_units, normalize=False,
-                 batch_first=False, init_weight=0.1):
+                 batch_first=False, init_weight=0.1, batch_size=None):
         """
         Constructor for the BahdanauAttention.
 
@@ -50,17 +50,30 @@ class BahdanauAttention(nn.Module):
 
         self.normalize = normalize
         self.batch_first = batch_first
+        self.batch_size = batch_size
         self.num_units = num_units
+
 
         self.linear_q = nn.Linear(query_size, num_units, bias=False)
         self.linear_k = nn.Linear(key_size, num_units, bias=False)
-        nn.init.uniform_(self.linear_q.weight.data, -init_weight, init_weight)
-        nn.init.uniform_(self.linear_k.weight.data, -init_weight, init_weight)
+        if self.batch_size is None:
+            self.linear_q_weight = self.linear_q.weight
+            self.linear_k_weight = self.linear_k.weight
+            self.linear_att = Parameter(torch.Tensor(num_units))
+        else:
+            assert self.linear_q.weight.dim() == 2
+            assert self.linear_k.weight.dim() == 2
+            self.linear_q_weight = Parameter(torch.Tensor(self.batch_size, self.linear_q.weight.size(0), self.linear_q.weight.size(1)))
+            self.linear_k_weight = Parameter(torch.Tensor(self.batch_size, self.linear_k.weight.size(0), self.linear_k.weight.size(1)))
+            self.linear_att = Parameter(torch.Tensor(self.batch_size, num_units, 1))
 
-        self.linear_att = Parameter(torch.Tensor(num_units))
+        nn.init.uniform_(self.linear_q_weight.data, -init_weight, init_weight)
+        nn.init.uniform_(self.linear_k_weight.data, -init_weight, init_weight)
 
         self.mask = None
 
+        #TODO: fix this
+        self.normalize = False
         if self.normalize:
             self.normalize_scalar = Parameter(torch.Tensor(1))
             self.normalize_bias = Parameter(torch.Tensor(num_units))
@@ -125,7 +138,12 @@ class BahdanauAttention(nn.Module):
         else:
             linear_att = self.linear_att
 
-        out = torch.tanh(sum_qk).matmul(linear_att)
+        if self.batch_size is not None:
+            assert self.batch_size == b
+            sum_qk = sum_qk.view(b, t_q * t_k, n)
+            out = torch.tanh(sum_qk).bmm(linear_att).view(b, t_q, t_k)
+        else:
+            out = torch.tanh(sum_qk).matmul(linear_att)
         return out
 
     def forward(self, query, keys):
@@ -156,8 +174,12 @@ class BahdanauAttention(nn.Module):
         t_q = query.size(1)
 
         # FC layers to transform query and key
-        processed_query = self.linear_q(query)
-        processed_key = self.linear_k(keys)
+        if self.batch_size is not None:
+            processed_query = torch.bmm(query, self.linear_q_weight.data) 
+            processed_key = torch.bmm(keys, self.linear_k_weight.data)
+        else:
+            processed_query = self.linear_q(query)
+            processed_key = self.linear_k(keys)
 
         # scores: (b x t_q x t_k)
         scores = self.calc_score(processed_query, processed_key)
