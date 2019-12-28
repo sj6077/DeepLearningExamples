@@ -38,16 +38,19 @@ class Translator:
                  batch_size,
                  device,
                  bmm=False,
-                 fp16=False):
+                 fp16=False,
+                 synthetic=True):
         torch.backends.cudnn.enabled = False
         self.batch_size = batch_size
         self.device = device
         self.bmm = bmm
         self.fp16 = fp16
+        self.synthetic = synthetic
 
         self.model, self.generator = self.get_gnmt_model()
         self.loader, self.bos = self.get_data_loader()
-        self.it = iter(self.loader)
+        if self.loader:
+            self.it = iter(self.loader)
 
     def get_gnmt_model(self):
         model_config = {'hidden_size': 1024,
@@ -65,6 +68,7 @@ class Translator:
             model.type(torch.HalfTensor)
         else:
             model.type(torch.FloatTensor)
+        model.float()
         model.eval()
         model = model.to(self.device)
         generator = SequenceGenerator(model=model,
@@ -77,21 +81,23 @@ class Translator:
         return model, generator
 
     def get_data_loader(self):
-        dataset_dir = '/cmsdata/ssd0/cmslab/wmt16_de_en'
-        vocab = os.path.join(dataset_dir, 'vocab.bpe.32000')
-        bpe_codes = os.path.join(dataset_dir, "bpe.32000")
-        lang = {'src': 'en', 'tgt': 'de'}
-        pad_vocab = utils.pad_vocabulary("fp16" if self.fp16 else "fp32")
-        tokenizer = Tokenizer(vocab, bpe_codes, lang, pad_vocab)
-        data = RawTextDataset(raw_datafile=os.path.join(dataset_dir, 'newstest2014.en'),
-                             tokenizer=tokenizer,
-                             sort=False)
-        loader = data.get_loader(
-                batch_size=self.batch_size,
-                batch_first=False,
-                pad=True,
-                repeat=1,
-                num_workers=0)
+        loader = None
+        if not self.synthetic:
+            dataset_dir = '/cmsdata/ssd0/cmslab/wmt16_de_en'
+            vocab = os.path.join(dataset_dir, 'vocab.bpe.32000')
+            bpe_codes = os.path.join(dataset_dir, "bpe.32000")
+            lang = {'src': 'en', 'tgt': 'de'}
+            pad_vocab = utils.pad_vocabulary("fp16" if self.fp16 else "fp32")
+            tokenizer = Tokenizer(vocab, bpe_codes, lang, pad_vocab)
+            data = RawTextDataset(raw_datafile=os.path.join(dataset_dir, 'newstest2014.en'),
+                                 tokenizer=tokenizer,
+                                 sort=False)
+            loader = data.get_loader(
+                    batch_size=self.batch_size,
+                    batch_first=False,
+                    pad=True,
+                    repeat=1,
+                    num_workers=0)
         bos = [[config.BOS]] * (self.batch_size * 5)
         bos = torch.tensor(bos, dtype=torch.int64, device=self.device)
         bos = bos.view(1, -1)
